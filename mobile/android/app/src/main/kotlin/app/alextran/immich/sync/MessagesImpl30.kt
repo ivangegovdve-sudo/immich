@@ -2,6 +2,7 @@ package app.alextran.immich.sync
 
 import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -10,6 +11,7 @@ import androidx.annotation.RequiresExtension
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
+import java.io.InputStream
 
 @RequiresApi(Build.VERSION_CODES.Q)
 @RequiresExtension(extension = Build.VERSION_CODES.R, version = 1)
@@ -123,5 +125,13 @@ class NativeSyncApiImpl30(context: Context) : NativeSyncApiImplBase(context), Na
     }
 
     return result.mapValues { it.value.toList() }
+  }
+
+  override fun openOriginalStream(uri: Uri): InputStream? {
+    return try {
+      ctx.contentResolver.openInputStream(MediaStore.setRequireOriginal(uri))
+    } catch (_: Exception) {
+      super.openOriginalStream(uri)
+    }
   }
 }

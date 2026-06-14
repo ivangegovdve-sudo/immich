@@ -4,7 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
-import androidx.exifinterface.media.ExifInterface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.ext.SdkExtensions
@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -275,7 +276,7 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       } catch (e: Exception) {
         Log.w(TAG, "Failed to parse image header for asset $assetId", e)
       }
-      // if mimeType is webp but not animated, its just an image.
+      // if mimeType is webp but not animated, it's just an image.
       return PlatformAssetPlaybackStyle.IMAGE
     }
 
@@ -377,7 +378,11 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
     )?.use { cursor -> cursor.count.toLong() } ?: 0L
 
 
-  fun getAssetsForAlbum(albumId: String, updatedTimeCond: Long?, callback: (Result<List<PlatformAsset>>) -> Unit) {
+  fun getAssetsForAlbum(
+    albumId: String,
+    updatedTimeCond: Long?,
+    callback: (Result<List<PlatformAsset>>) -> Unit
+  ) {
     runSync(callback) { getAssetsForAlbum(albumId, updatedTimeCond) }
   }
 
@@ -419,7 +424,7 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
         }.awaitAll()
 
         completeWhenActive(callback, Result.success(results))
-      } catch (e: CancellationException) {
+      } catch (_: CancellationException) {
         completeWhenActive(
           callback, Result.failure(
             FlutterError(
@@ -435,6 +440,10 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
     }
   }
 
+  protected open fun openOriginalStream(uri: Uri): InputStream? {
+    return ctx.contentResolver.openInputStream(uri)
+  }
+
   private suspend fun hashAsset(assetId: String): HashResult {
     return try {
       val assetUri = ContentUris.withAppendedId(
@@ -443,7 +452,7 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       )
 
       val digest = MessageDigest.getInstance("SHA-1")
-      ctx.contentResolver.openInputStream(assetUri)?.use { inputStream ->
+      openOriginalStream(assetUri)?.use { inputStream ->
         var bytesRead: Int
         val buffer = ByteArray(HASH_BUFFER_SIZE)
         while (inputStream.read(buffer).also { bytesRead = it } > 0) {
@@ -476,8 +485,11 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
     syncJob = CoroutineScope(Dispatchers.IO).launch {
       try {
         completeWhenActive(callback, Result.success(work()))
-      } catch (e: CancellationException) {
-        completeWhenActive(callback, Result.failure(FlutterError(SYNC_CANCELLED_CODE, "Sync cancelled", null)))
+      } catch (_: CancellationException) {
+        completeWhenActive(
+          callback,
+          Result.failure(FlutterError(SYNC_CANCELLED_CODE, "Sync cancelled", null))
+        )
       } catch (e: Exception) {
         completeWhenActive(callback, Result.failure(e))
       }
