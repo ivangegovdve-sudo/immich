@@ -21,13 +21,14 @@ import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_drag_region.dart';
-import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_sliver_app_bar.dart';
 import 'package:immich_mobile/widgets/common/mesmerizing_sliver_app_bar.dart';
 import 'package:immich_mobile/widgets/common/selection_sliver_app_bar.dart';
+import 'package:logging/logging.dart';
 
 class Timeline extends StatelessWidget {
   const Timeline({
@@ -136,6 +137,7 @@ class _SliverTimeline extends ConsumerStatefulWidget {
 }
 
 class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
+  static final Logger _log = Logger('Timeline');
   late final ScrollController _scrollController;
   StreamSubscription? _eventSubscription;
 
@@ -153,6 +155,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
   @override
   void initState() {
     super.initState();
+    _log.info('SliverTimeline initState');
     _scrollController = ScrollController(onAttach: _restoreAssetPosition);
     _eventSubscription = EventStream.shared.listen(_onEvent);
 
@@ -179,12 +182,19 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
   }
 
   void _onEvent(Event event) {
+    _log.info('event ${event.runtimeType}');
     switch (event) {
       case ScrollToTopEvent():
-        ref.read(timelineStateProvider.notifier).setScrubbing(true);
-        _scrollController
-            .animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeInOut)
-            .whenComplete(() => ref.read(timelineStateProvider.notifier).setScrubbing(false));
+        {
+          final timelineState = ref.read(timelineStateProvider.notifier);
+          timelineState.setScrubbing(true);
+          _scrollController
+              .animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeInOut)
+              .whenComplete(() {
+                _log.info('ScrollToTop animation done -> setScrubbing(false)');
+                timelineState.setScrubbing(false);
+              });
+        }
 
       case ScrollToDateEvent scrollToDateEvent:
         _scrollToDate(scrollToDateEvent.date);
@@ -243,12 +253,14 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
 
   @override
   void dispose() {
+    _log.info('SliverTimeline dispose');
     _scrollController.dispose();
     _eventSubscription?.cancel();
     super.dispose();
   }
 
   void _scrollToDate(DateTime date) {
+    final timelineState = ref.read(timelineStateProvider.notifier);
     final asyncSegments = ref.read(timelineSegmentProvider);
     asyncSegments.whenData((segments) {
       // Find the segment that contains assets from the target date
@@ -275,16 +287,20 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
       if (fallbackSegment != null) {
         // Scroll to the segment with a small offset to show the header
         final targetOffset = fallbackSegment.startOffset - 50;
-        ref.read(timelineStateProvider.notifier).setScrubbing(true);
+        timelineState.setScrubbing(true);
         _scrollController
             .animateTo(
               targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
               duration: const Duration(milliseconds: 500),
               curve: Curves.easeInOut,
             )
-            .whenComplete(() => ref.read(timelineStateProvider.notifier).setScrubbing(false));
+            .whenComplete(() {
+              _log.info('ScrollToDate animation done -> setScrubbing(false)');
+              timelineState.setScrubbing(false);
+            });
       } else {
-        ref.read(timelineStateProvider.notifier).setScrubbing(false);
+        _log.info('ScrollToDate: no matching segment for $date -> setScrubbing(false)');
+        timelineState.setScrubbing(false);
       }
     });
   }
@@ -301,19 +317,19 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
   void _stopDrag() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Update the physics post frame to prevent sudden change in physics on iOS.
-      setState(() {
-        _scrollPhysics = null;
-      });
+      if (mounted) {
+        setState(() {
+          _scrollPhysics = null;
+        });
+      }
     });
     setState(() {
       _dragging = false;
       _draggedAssets.clear();
     });
-    // Reset the scrolling state after a small delay to allow bottom sheet to expand again
+    final timelineState = ref.read(timelineStateProvider.notifier);
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        ref.read(timelineStateProvider.notifier).setScrolling(false);
-      }
+      timelineState.setScrolling(false);
     });
   }
 
